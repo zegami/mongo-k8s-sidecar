@@ -1,8 +1,8 @@
-NUM_REPLICAS=$(shell kubectl get rc -l role=mongo -o template --template='{{ len .items }}')
-NEW_REPLICA_NUM=$(shell expr $(NUM_REPLICAS) + 1 )
 CREATE_SERVICE=TRUE
 MONGO_SECRET_NAME ?= "mongo-ssl"
 KUBECTL_NAMESPACE ?= "default"
+NUM_REPLICAS=$(shell kubectl get rc -l role=mongo -o template --template='{{ len .items }}' --namespace=$(KUBECTL_NAMESPACE))
+NEW_REPLICA_NUM=$(shell expr $(NUM_REPLICAS) + 1 )
 
 
 # ENV Options
@@ -33,10 +33,10 @@ endif
 add-replica:
 ifeq ($(ENV),GoogleCloudPlatform)
 	@echo 'Creating Disk'
-	-gcloud compute disks create mongo-persistent-storage-node-$(NEW_REPLICA_NUM)-disk --size $(DISK_SIZE) --zone $(ZONE)
+	-gcloud compute disks create mongo-persistent-storage-node-$(KUBECTL_NAMESPACE)-$(NEW_REPLICA_NUM)-disk --size $(DISK_SIZE) --zone $(ZONE)
 
 	@echo 'Adding Replica'
-	-sed -e 's~<num>~$(NEW_REPLICA_NUM)~g' mongo-controller-template.yaml | kubectl create -f -
+	-sed -e 's~<num>~$(NEW_REPLICA_NUM)~g;' -e 's~<namespace>~$(KUBECTL_NAMESPACE)~g;' mongo-controller-template.yaml | kubectl create --namespace=$(KUBECTL_NAMESPACE) -f -
 endif
 ifeq ($(ENV),AWS)
 	@echo 'AWS not supported yet'
@@ -50,23 +50,23 @@ ifeq ($(ENV),FLOCKERAWS)
 	# kubectl create -f mongo-rc-1.yaml
 	# kubectl delete -f mongo-rc-1.yaml
 	-sed -e 's/<num>/$(NEW_REPLICA_NUM)/g' -e 's/VOLUME_PREFIX/$(VOLUME_PREFIX)/g' mongo-controller-flocker-template.yaml | tee mongo-rc-$(NEW_REPLICA_NUM).yaml
-	-kubectl create -f mongo-rc-$(NEW_REPLICA_NUM).yaml
+	-kubectl create -f mongo-rc-$(NEW_REPLICA_NUM).yaml --namespace $(KUBECTL_NAMESPACE)
 endif
 ifeq ($(CREATE_SERVICE),TRUE)
 	@echo 'Creating Service'
-	-sed -e 's~<num>~$(NEW_REPLICA_NUM)~g' mongo-service-template.yaml | kubectl create -f -
+	-sed -e 's~<num>~$(NEW_REPLICA_NUM)~g' mongo-service-template.yaml | kubectl apply --namespace $(KUBECTL_NAMESPACE) -f -
 endif
 
 delete-replica:
 	@echo 'Deleting Service'
-	-kubectl delete svc mongo-$(NUM_REPLICAS)
+	-kubectl delete svc mongo-$(NUM_REPLICAS) --namespace $(KUBECTL_NAMESPACE)
 ifeq ($(ENV),GoogleCloudPlatform)
 	@echo 'Deleting Replic'
-	-kubectl delete rc mongo-$(NUM_REPLICAS)
+	-kubectl delete rc mongo-$(NUM_REPLICAS) --namespace $(KUBECTL_NAMESPACE)
 
 	@echo 'Deleting Disk'
 	sleep 60
-	-yes | gcloud compute disks delete mongo-persistent-storage-node-$(NUM_REPLICAS)-disk --zone $(ZONE)
+	-yes | gcloud compute disks delete mongo-persistent-storage-node-$(KUBECTL_NAMESPACE)-$(NUM_REPLICAS)-disk --zone $(ZONE)
 endif
 ifeq ($(ENV),AWS)
 	@echo 'AWS not supported yet'
